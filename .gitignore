@@ -1,0 +1,32 @@
+# Python
+__pycache__/
+*.py[cod]
+*.pyo
+.pytest_cache/
+
+# Virtual environments
+.venv/
+venv/
+env/
+
+# PyInstaller build cache
+build/
+*.spec
+assets/icon.ico
+
+# Local/editor files
+.idea/
+.vscode/
+*.log
+
+# Temporary/sample PDFs
+test_*.pdf
+AGENTS.md
+
+# Keep the release executable, ignore other generated dist artifacts.
+dist/*
+!dist/AetherPDF.exe
+
+# OS files
+Thumbs.db
+.DS_Store
