@@ -20,6 +20,46 @@ QGraphicsView {
     border: none;
 }
 
+/* Custom Window Title Bar */
+QWidget#titleBar {
+    background-color: #101014;
+    border-bottom: 1px solid #2E2E35;
+}
+
+QLabel#titleBarTitle {
+    color: #E1E1E6;
+    font-size: 12px;
+    font-weight: 700;
+}
+
+QLabel#titleBarIcon {
+    background-color: transparent;
+}
+
+QToolButton#titleBarButton,
+QToolButton#titleBarCloseButton {
+    background-color: transparent;
+    color: #A9A9B2;
+    border: none;
+    border-radius: 4px;
+    min-width: 32px;
+    min-height: 24px;
+    padding: 0px;
+    margin: 0px;
+    font-size: 14px;
+    font-weight: 700;
+}
+
+QToolButton#titleBarButton:hover {
+    background-color: #2A2A30;
+    color: #00F0FF;
+}
+
+QToolButton#titleBarCloseButton:hover {
+    background-color: #D92D20;
+    color: #FFFFFF;
+}
+
 /* Sidebar Styling (Glassmorphic look) */
 QFrame#sidebarFrame {
     background-color: #1B1B1F;
@@ -233,46 +273,66 @@ QToolButton:checked {
 /* ScrollBars */
 QScrollBar:vertical {
     border: none;
-    background: #121214;
-    width: 10px;
-    margin: 0px;
+    background: #151518;
+    width: 12px;
+    margin: 4px 2px 4px 2px;
+    border-radius: 6px;
 }
 
 QScrollBar::handle:vertical {
-    background: #2E2E35;
-    min-height: 20px;
+    background: qlineargradient(x1:0, y1:0, x2:0, y2:1,
+                                stop:0 #00F0FF, stop:1 #8A2BE2);
+    min-height: 28px;
     border-radius: 5px;
 }
 
 QScrollBar::handle:vertical:hover {
-    background: #8A2BE2; /* Purple handle on hover */
+    background: qlineargradient(x1:0, y1:0, x2:0, y2:1,
+                                stop:0 #33F4FF, stop:1 #9B30FF);
 }
 
 QScrollBar::add-line:vertical, QScrollBar::sub-line:vertical {
     border: none;
     background: none;
+    height: 0px;
+}
+
+QScrollBar::add-page:vertical, QScrollBar::sub-page:vertical {
+    background: transparent;
 }
 
 QScrollBar:horizontal {
     border: none;
-    background: #121214;
-    height: 10px;
-    margin: 0px;
+    background: #151518;
+    height: 12px;
+    margin: 2px 4px 2px 4px;
+    border-radius: 6px;
 }
 
 QScrollBar::handle:horizontal {
-    background: #2E2E35;
-    min-width: 20px;
+    background: qlineargradient(x1:0, y1:0, x2:1, y2:0,
+                                stop:0 #00F0FF, stop:1 #8A2BE2);
+    min-width: 28px;
     border-radius: 5px;
 }
 
 QScrollBar::handle:horizontal:hover {
-    background: #8A2BE2;
+    background: qlineargradient(x1:0, y1:0, x2:1, y2:0,
+                                stop:0 #33F4FF, stop:1 #9B30FF);
 }
 
 QScrollBar::add-line:horizontal, QScrollBar::sub-line:horizontal {
     border: none;
     background: none;
+    width: 0px;
+}
+
+QScrollBar::add-page:horizontal, QScrollBar::sub-page:horizontal {
+    background: transparent;
+}
+
+QAbstractScrollArea::corner {
+    background: #151518;
 }
 
 /* Text Inputs (QLineEdit, QTextEdit) */
@@ -323,13 +383,13 @@ QMenuBar {
     border-bottom: 1px solid #2E2E35;
     font-size: 12px;
     font-weight: 500;
-    padding: 2px 6px;
+    padding: 0px 6px;
 }
 
 QMenuBar::item {
     background-color: transparent;
-    padding: 4px 10px;
-    margin: 1px 2px;
+    padding: 3px 10px;
+    margin: 0px 2px;
     border-radius: 4px;
 }
 

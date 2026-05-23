@@ -10,9 +10,9 @@ from typing import Optional, List
 import os
 from PySide6.QtWidgets import (
     QMainWindow, QWidget, QVBoxLayout, QHBoxLayout, QSplitter,
-    QFileDialog, QMessageBox, QLabel
+    QFileDialog, QMessageBox, QLabel, QMenuBar, QToolButton
 )
-from PySide6.QtCore import Qt, QSize
+from PySide6.QtCore import Qt, QSize, QPoint
 from PySide6.QtGui import QAction, QKeySequence, QIcon
 
 from config.settings import APP_NAME, DEFAULT_WINDOW_WIDTH, DEFAULT_WINDOW_HEIGHT
@@ -27,6 +27,97 @@ from views.pdf_viewer_widget import PdfViewerWidget
 from views.properties_widget import PropertiesWidget
 
 
+class TitleBar(QWidget):
+    """Custom frameless window title bar."""
+
+    def __init__(self, parent: QMainWindow) -> None:
+        """Create title text and window control buttons."""
+        super().__init__(parent)
+        self._window = parent
+        self._drag_pos: Optional[QPoint] = None
+        self.setObjectName("titleBar")
+        self.setFixedHeight(34)
+
+        layout = QHBoxLayout(self)
+        layout.setContentsMargins(12, 0, 8, 0)
+        layout.setSpacing(6)
+
+        self.icon_label = QLabel()
+        self.icon_label.setObjectName("titleBarIcon")
+        self.icon_label.setFixedSize(18, 18)
+        layout.addWidget(self.icon_label)
+
+        self.title_label = QLabel(APP_NAME)
+        self.title_label.setObjectName("titleBarTitle")
+        layout.addWidget(self.title_label)
+        layout.addStretch()
+
+        self.btn_minimize = QToolButton()
+        self.btn_minimize.setObjectName("titleBarButton")
+        self.btn_minimize.setText("-")
+        self.btn_minimize.setToolTip("최소화")
+        self.btn_minimize.clicked.connect(self._window.showMinimized)
+
+        self.btn_maximize = QToolButton()
+        self.btn_maximize.setObjectName("titleBarButton")
+        self.btn_maximize.setText("□")
+        self.btn_maximize.setToolTip("최대화")
+        self.btn_maximize.clicked.connect(self._toggle_maximized)
+
+        self.btn_close = QToolButton()
+        self.btn_close.setObjectName("titleBarCloseButton")
+        self.btn_close.setText("×")
+        self.btn_close.setToolTip("닫기")
+        self.btn_close.clicked.connect(self._window.close)
+
+        layout.addWidget(self.btn_minimize)
+        layout.addWidget(self.btn_maximize)
+        layout.addWidget(self.btn_close)
+
+    def set_icon(self, icon: QIcon) -> None:
+        """Display the application icon in the title bar."""
+        if not icon.isNull():
+            self.icon_label.setPixmap(icon.pixmap(18, 18))
+
+    def set_title(self, title: str) -> None:
+        """Update the visible title text."""
+        self.title_label.setText(title)
+
+    def mousePressEvent(self, event) -> None:
+        """Start window drag on left mouse press."""
+        if event.button() == Qt.LeftButton:
+            self._drag_pos = event.globalPosition().toPoint() - self._window.frameGeometry().topLeft()
+            event.accept()
+
+    def mouseMoveEvent(self, event) -> None:
+        """Move the frameless window while dragging the title bar."""
+        if self._drag_pos is not None and event.buttons() & Qt.LeftButton:
+            if self._window.isMaximized():
+                self._window.showNormal()
+            self._window.move(event.globalPosition().toPoint() - self._drag_pos)
+            event.accept()
+
+    def mouseReleaseEvent(self, event) -> None:
+        """Stop title-bar dragging."""
+        self._drag_pos = None
+        super().mouseReleaseEvent(event)
+
+    def mouseDoubleClickEvent(self, event) -> None:
+        """Toggle maximize state on title-bar double click."""
+        if event.button() == Qt.LeftButton:
+            self._toggle_maximized()
+            event.accept()
+
+    def _toggle_maximized(self) -> None:
+        """Toggle between maximized and normal window states."""
+        if self._window.isMaximized():
+            self._window.showNormal()
+            self.btn_maximize.setText("□")
+        else:
+            self._window.showMaximized()
+            self.btn_maximize.setText("❐")
+
+
 
 class MainWindow(QMainWindow):
     """
@@ -36,6 +127,7 @@ class MainWindow(QMainWindow):
     def __init__(self) -> None:
         """Initialize and layout the main window structure."""
         super().__init__()
+        self.setWindowFlags(Qt.FramelessWindowHint | Qt.Window)
         self.setWindowTitle(APP_NAME)
         self.resize(DEFAULT_WINDOW_WIDTH, DEFAULT_WINDOW_HEIGHT)
 
@@ -52,9 +144,15 @@ class MainWindow(QMainWindow):
         base_dir = getattr(_sys, '_MEIPASS', os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
         icon_path = os.path.join(base_dir, "assets", "icon.png")
         if os.path.exists(icon_path):
-            self.setWindowIcon(QIcon(icon_path))
+            app_icon = QIcon(icon_path)
+            self.setWindowIcon(app_icon)
+        else:
+            app_icon = QIcon()
 
         self._init_ui()
+        self.title_bar.set_icon(app_icon)
+        self.windowTitleChanged.connect(self.title_bar.set_title)
+        self.title_bar.set_title(self.windowTitle())
         self._setup_menu_bar()  # Combined QMenuBar setup and shortcut actions
         self._connect_signals()
         self._sync_hud()        # Initial HUD state sync (empty state)
@@ -70,13 +168,23 @@ class MainWindow(QMainWindow):
         main_layout.setContentsMargins(0, 0, 0, 0)
         main_layout.setSpacing(0)
 
-        # 1. Add Top Toolbar Widget
+        # 1. Add Custom Title Bar and Menu Bar
+        self.title_bar = TitleBar(self)
+        main_layout.addWidget(self.title_bar)
+
+        self.custom_menu_bar = QMenuBar(self)
+        self.custom_menu_bar.setObjectName("customMenuBar")
+        self.custom_menu_bar.setFixedHeight(28)
+        main_layout.addWidget(self.custom_menu_bar)
+
+        # 2. Add Top Toolbar Widget
         self.toolbar = ToolbarWidget(self)
         main_layout.addWidget(self.toolbar)
 
-        # 2. Add Split-pane (Sidebar | Viewer)
+        # 3. Add Split-pane (Sidebar | Viewer)
         self.splitter = QSplitter(Qt.Horizontal)
-        self.splitter.setHandleWidth(2)
+        self.splitter.setHandleWidth(6)
+        self.splitter.setChildrenCollapsible(False)
         self.splitter.setStyleSheet("QSplitter::handle { background-color: #2E2E35; }")
 
         # Sidebar Thumbnail Navigator
@@ -96,13 +204,13 @@ class MainWindow(QMainWindow):
         self.splitter.setSizes([180, 860, 240])
         main_layout.addWidget(self.splitter)
 
-        # 3. Simple Status Bar
+        # 4. Simple Status Bar
         self.statusBar().showMessage("준비 완료")
         self.statusBar().setStyleSheet("QStatusBar { background-color: #121214; color: #8D8D99; border-top: 1px solid #2E2E35; }")
 
     def _setup_menu_bar(self) -> None:
         """Configure elegant QMenuBar for direct menu tree access and unified shortcuts."""
-        menubar = self.menuBar()
+        menubar = self.custom_menu_bar
         menubar.clear()  # Clear native menus if any
 
         # --- 1. 파일 메뉴 (File Menu) ---
@@ -195,11 +303,13 @@ class MainWindow(QMainWindow):
         # Sidebar Thumbnail Navigation
         self.sidebar.page_selected.connect(self._on_sidebar_page_selected)
         self.sidebar.pages_reordered.connect(self._on_pages_reordered)
+        self.sidebar.page_action_requested.connect(self._on_sidebar_page_action_requested)
 
         # Viewer Updates
         self.viewer.zoom_level_changed.connect(self._on_viewer_zoom_changed)
         self.viewer.text_modified.connect(self._on_body_text_modified)
         self.viewer.text_added.connect(self._on_free_text_added)
+        self.viewer.text_style_selected.connect(self.properties_panel.set_text_style)
         self.viewer.page_navigation_requested.connect(self._on_page_navigation_requested)  # [NEW] 휠 바운더리 페이지 전환
         self.viewer.annotation_added.connect(self._on_annotation_added)
 
@@ -324,7 +434,8 @@ class MainWindow(QMainWindow):
             "<p>• 엔진: PyMuPDF (fitz)<br/>"
             "• GUI: PySide6 (Qt6)<br/>"
             "• 테마: Aether Neon Dark Theme</p>"
-            "<p>© 2026 Google DeepMind Team & Advanced Agentic Coding.</p>"
+            "<p>• GitHub: https://github.com/woodencatjskim/AetherPDF<br/>"
+            "• Contact: woodencat.jskim@gmail.com</p>"
         )
 
     def action_open_file(self) -> None:
@@ -452,6 +563,21 @@ class MainWindow(QMainWindow):
         self.viewer.load_page(page_index)
         self._sync_hud()  # Sync HUD on page navigation
         self.statusBar().showMessage(f"{page_index + 1} 페이지 표시 중")
+
+    def _on_sidebar_page_action_requested(self, page_index: int, action: str) -> None:
+        """Run an edit-menu action for the page selected from the sidebar."""
+        self.viewer.load_page(page_index)
+        self.sidebar.select_page(page_index)
+        self._sync_hud()
+
+        if action == "rotate":
+            self.action_rotate_page()
+        elif action == "delete":
+            self.action_delete_page()
+        elif action == "insert":
+            self.action_insert_blank()
+        elif action == "merge":
+            self.action_merge_pdf()
 
     def _on_page_navigation_requested(self, direction: int) -> None:
         """

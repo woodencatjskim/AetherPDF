@@ -16,6 +16,7 @@ from PySide6.QtGui import (
     QPixmap, QImage, QMouseEvent, QWheelEvent, QCursor,
     QPen, QBrush, QColor, QPainterPath
 )
+import fitz
 
 
 from models.pdf_document import PdfDocument
@@ -34,6 +35,7 @@ class PdfViewerWidget(QGraphicsView):
     zoom_level_changed = Signal(int)
     text_modified = Signal(int, dict, str, str, object)
     text_added = Signal(int, tuple, str, object)
+    text_style_selected = Signal(dict)
     annotation_added = Signal(int, str, list, tuple, float, float)  # (page_idx, type, rects/lines, color, width, opacity)
     page_navigation_requested = Signal(int)  # 1: next, -1: prev [NEW]
 
@@ -580,6 +582,10 @@ class PdfViewerWidget(QGraphicsView):
                     scene_h = (bbox[3] - bbox[1]) / scale_ratio
 
                     # Create QLineEdit as Inline Editor Overlay
+                    selected_style = self._text_style_from_block(block, pdf_x, pdf_y)
+                    self._text_style.update(selected_style)
+                    self.text_style_selected.emit(dict(self._text_style))
+
                     editor = QLineEdit()
                     editor.setText(block_full_text)
                     self._apply_editor_style(editor)
@@ -606,6 +612,35 @@ class PdfViewerWidget(QGraphicsView):
                     
                     return True
         return False
+
+    def _text_style_from_block(self, block: Dict[str, Any], pdf_x: float, pdf_y: float) -> Dict[str, Any]:
+        """Extract text color and size from the span under the clicked point."""
+        fallback_span = None
+        for line in block.get("lines", []):
+            for span in line.get("spans", []):
+                fallback_span = fallback_span or span
+                bbox = span.get("bbox")
+                if bbox and bbox[0] <= pdf_x <= bbox[2] and bbox[1] <= pdf_y <= bbox[3]:
+                    return self._style_from_span(span)
+
+        return self._style_from_span(fallback_span) if fallback_span else {}
+
+    def _style_from_span(self, span: Dict[str, Any]) -> Dict[str, Any]:
+        """Convert a PyMuPDF text span style into the editor style dictionary."""
+        style: Dict[str, Any] = {}
+        size = span.get("size")
+        if isinstance(size, (int, float)):
+            style["font_size"] = max(6.0, min(72.0, float(size)))
+
+        color = span.get("color")
+        if isinstance(color, int):
+            style["color"] = (
+                ((color >> 16) & 0xFF) / 255.0,
+                ((color >> 8) & 0xFF) / 255.0,
+                (color & 0xFF) / 255.0,
+            )
+
+        return style
 
     def _try_activate_new_text_editor(self, scene_pos: QPointF) -> bool:
         """Create an inline editor at an empty page location for new text."""

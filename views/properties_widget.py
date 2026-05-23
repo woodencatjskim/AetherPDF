@@ -9,10 +9,10 @@ from typing import Tuple
 from PySide6.QtWidgets import (
     QFrame, QVBoxLayout, QHBoxLayout, QLabel, QRadioButton,
     QButtonGroup, QSlider, QColorDialog, QPushButton, QGridLayout,
-    QSpinBox, QCheckBox
+    QSpinBox, QCheckBox, QToolButton, QSizePolicy
 )
-from PySide6.QtCore import Signal, Qt
-from PySide6.QtGui import QColor
+from PySide6.QtCore import Signal, Qt, QSize
+from PySide6.QtGui import QColor, QIcon, QPainter, QPen, QPixmap
 
 
 class PropertiesWidget(QFrame):
@@ -36,7 +36,9 @@ class PropertiesWidget(QFrame):
         """Initialize properties panel with layout and default values."""
         super().__init__(parent)
         self.setObjectName("propertiesFrame")
-        self.setFixedWidth(240)
+        self.setMinimumWidth(200)
+        self.setMaximumWidth(360)
+        self.setSizePolicy(QSizePolicy.Preferred, QSizePolicy.Expanding)
 
         self._active_tool: str = "highlight"
         self._current_color: Tuple[float, float, float] = (1.0, 1.0, 0.0)
@@ -45,9 +47,11 @@ class PropertiesWidget(QFrame):
         self._text_font_size: float = 12.0
         self._text_bold: bool = False
         self._text_italic: bool = False
+        self.preset_buttons = []
 
         self._init_ui()
         self.set_mode("annotate")
+        self._refresh_color_ui()
 
     def _init_ui(self) -> None:
         """Configure widget layout hierarchy and QSS styling."""
@@ -117,6 +121,17 @@ class PropertiesWidget(QFrame):
                 width: 14px;
                 height: 14px;
             }
+            QLabel#currentColorSwatch {
+                border: 2px solid #FFFFFF;
+                border-radius: 6px;
+                min-width: 42px;
+                min-height: 24px;
+            }
+            QLabel#currentColorValue {
+                color: #E1E1E6;
+                font-family: Consolas, monospace;
+                font-size: 12px;
+            }
         """)
 
         layout = QVBoxLayout(self)
@@ -166,6 +181,20 @@ class PropertiesWidget(QFrame):
         label_color.setProperty("sectionLabel", True)
         color_layout.addWidget(label_color)
 
+        current_color_layout = QHBoxLayout()
+        current_color_layout.setSpacing(8)
+
+        self.current_color_swatch = QLabel()
+        self.current_color_swatch.setObjectName("currentColorSwatch")
+        self.current_color_swatch.setFixedSize(46, 28)
+        current_color_layout.addWidget(self.current_color_swatch)
+
+        self.current_color_value = QLabel()
+        self.current_color_value.setObjectName("currentColorValue")
+        current_color_layout.addWidget(self.current_color_value)
+        current_color_layout.addStretch()
+        color_layout.addLayout(current_color_layout)
+
         grid_layout = QGridLayout()
         grid_layout.setSpacing(6)
 
@@ -177,37 +206,28 @@ class PropertiesWidget(QFrame):
             ("#00FF66", (0.0, 1.0, 0.4)),
         ]
 
-        self.preset_buttons = []
         for idx, (hex_val, rgb_val) in enumerate(self.presets):
             btn = QPushButton()
             btn.setFixedSize(28, 28)
-            btn.setStyleSheet(f"""
-                QPushButton {{
-                    background-color: {hex_val};
-                    border: 2px solid #2E2E35;
-                    border-radius: 14px;
-                }}
-                QPushButton:hover {{
-                    border: 2px solid #E1E1E6;
-                }}
-            """)
+            btn.setToolTip(hex_val)
             btn.clicked.connect(lambda checked=False, val=rgb_val: self._on_color_preset_clicked(val))
             grid_layout.addWidget(btn, 0, idx)
             self.preset_buttons.append(btn)
 
-        self.btn_custom_color = QPushButton("직접 선택")
-        self.btn_custom_color.setFixedHeight(28)
+        self.btn_custom_color = QToolButton()
+        self.btn_custom_color.setFixedSize(28, 28)
+        self.btn_custom_color.setIcon(self._create_palette_icon())
+        self.btn_custom_color.setIconSize(QSize(18, 18))
+        self.btn_custom_color.setToolTip("색상 직접 선택")
         self.btn_custom_color.setStyleSheet("""
-            QPushButton {
-                color: #E1E1E6;
-                font-size: 11px;
-                padding: 4px;
+            QToolButton {
                 border: 1px solid #2E2E35;
+                border-radius: 14px;
                 background-color: #202024;
             }
-            QPushButton:hover {
-                color: #00F0FF;
+            QToolButton:hover {
                 border: 1px solid #8A2BE2;
+                background-color: #2A2A30;
             }
         """)
         self.btn_custom_color.clicked.connect(self._on_custom_color_dialog)
@@ -317,6 +337,20 @@ class PropertiesWidget(QFrame):
             "italic": self._text_italic,
         }
 
+    def set_text_style(self, style: dict) -> None:
+        """Update text controls from a selected PDF text span."""
+        color = style.get("color")
+        if isinstance(color, tuple) and len(color) == 3:
+            self._current_color = color
+            self._refresh_color_ui()
+
+        font_size = style.get("font_size")
+        if isinstance(font_size, (int, float)):
+            self._text_font_size = max(6.0, min(72.0, float(font_size)))
+            self.spin_text_size.blockSignals(True)
+            self.spin_text_size.setValue(int(round(self._text_font_size)))
+            self.spin_text_size.blockSignals(False)
+
     def _on_tool_selected(self) -> None:
         """Process annotation tool changes and emit signals."""
         if self.radio_highlight.isChecked():
@@ -333,6 +367,7 @@ class PropertiesWidget(QFrame):
     def _on_color_preset_clicked(self, rgb_val: Tuple[float, float, float]) -> None:
         """Handle preset color clicks."""
         self._current_color = rgb_val
+        self._refresh_color_ui()
         self.color_changed.emit(self._current_color)
         self.text_style_changed.emit(self.get_text_style())
 
@@ -346,8 +381,71 @@ class PropertiesWidget(QFrame):
         q_color = QColorDialog.getColor(initial_color, self, "색상 선택")
         if q_color.isValid():
             self._current_color = (q_color.redF(), q_color.greenF(), q_color.blueF())
+            self._refresh_color_ui()
             self.color_changed.emit(self._current_color)
             self.text_style_changed.emit(self.get_text_style())
+
+    def _refresh_color_ui(self) -> None:
+        """Update selected color preview and preset selection rings."""
+        hex_color = self._current_color_hex()
+        self.current_color_swatch.setStyleSheet(f"background-color: {hex_color};")
+        self.current_color_value.setText(hex_color)
+
+        for btn, (preset_hex, preset_rgb) in zip(self.preset_buttons, self.presets):
+            is_selected = self._colors_match(self._current_color, preset_rgb)
+            border_color = "#FFFFFF" if is_selected else "#2E2E35"
+            border_width = 3 if is_selected else 2
+            btn.setStyleSheet(f"""
+                QPushButton {{
+                    background-color: {preset_hex};
+                    border: {border_width}px solid {border_color};
+                    border-radius: 14px;
+                }}
+                QPushButton:hover {{
+                    border: 3px solid #00F0FF;
+                }}
+            """)
+
+    def _current_color_hex(self) -> str:
+        """Return the current RGB color as a hex string."""
+        return QColor.fromRgbF(
+            self._current_color[0],
+            self._current_color[1],
+            self._current_color[2]
+        ).name().upper()
+
+    def _colors_match(
+        self,
+        first: Tuple[float, float, float],
+        second: Tuple[float, float, float]
+    ) -> bool:
+        """Compare RGB float tuples with tolerance for dialog conversions."""
+        return all(abs(a - b) < 0.01 for a, b in zip(first, second))
+
+    def _create_palette_icon(self) -> QIcon:
+        """Create a small palette icon for the custom color picker button."""
+        pixmap = QPixmap(24, 24)
+        pixmap.fill(Qt.transparent)
+
+        painter = QPainter(pixmap)
+        painter.setRenderHint(QPainter.Antialiasing)
+        painter.setPen(QPen(QColor("#E1E1E6"), 1.5))
+        painter.setBrush(QColor("#2A2A30"))
+        painter.drawEllipse(3, 4, 18, 16)
+
+        painter.setPen(Qt.NoPen)
+        for color, x, y in [
+            ("#00F0FF", 8, 8),
+            ("#8A2BE2", 14, 8),
+            ("#FFFF00", 10, 14),
+        ]:
+            painter.setBrush(QColor(color))
+            painter.drawEllipse(x, y, 4, 4)
+
+        painter.setBrush(QColor("#1B1B1F"))
+        painter.drawEllipse(16, 15, 4, 4)
+        painter.end()
+        return QIcon(pixmap)
 
     def _on_width_changed(self, val: int) -> None:
         """Handle line thickness slider adjustments."""
