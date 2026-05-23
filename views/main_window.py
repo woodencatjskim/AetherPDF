@@ -451,6 +451,27 @@ class MainWindow(QMainWindow):
         self._update_progress_dialog.setWindowModality(Qt.WindowModal)
         self._update_progress_dialog.setMinimumDuration(0)
         self._update_progress_dialog.setCancelButton(None)
+        self._update_progress_dialog.setStyleSheet("""
+            QProgressDialog {
+                background-color: #F4F4F5;
+                color: #111111;
+            }
+            QProgressDialog QLabel {
+                color: #111111;
+                font-size: 13px;
+            }
+            QProgressBar {
+                background-color: #FFFFFF;
+                color: #111111;
+                border: 1px solid #B8B8C0;
+                border-radius: 4px;
+                text-align: center;
+            }
+            QProgressBar::chunk {
+                background-color: #00A8B5;
+                border-radius: 3px;
+            }
+        """)
 
         self._update_download_thread = QThread(self)
         self._update_download_worker = UpdateDownloadWorker(self._update_info)
@@ -482,11 +503,32 @@ class MainWindow(QMainWindow):
             self._update_progress_dialog.close()
             self._update_progress_dialog = None
 
-        QMessageBox.information(
-            self,
-            "업데이트",
-            "확인을 누르면 업데이트를 적용하기 위해 AetherPDF를 재시작합니다."
-        )
+        restart_message = QMessageBox(self)
+        restart_message.setIcon(QMessageBox.Information)
+        restart_message.setWindowTitle("업데이트")
+        restart_message.setText("확인을 누르면 업데이트를 적용하기 위해 AetherPDF를 재시작합니다.")
+        restart_message.setStyleSheet("""
+            QMessageBox {
+                background-color: #F4F4F5;
+            }
+            QMessageBox QLabel {
+                color: #111111;
+                font-size: 13px;
+            }
+            QMessageBox QPushButton {
+                background-color: #FFFFFF;
+                color: #111111;
+                border: 1px solid #B8B8C0;
+                border-radius: 4px;
+                padding: 6px 14px;
+            }
+            QMessageBox QPushButton:hover {
+                background-color: #ECECF0;
+                color: #111111;
+                border: 1px solid #8A2BE2;
+            }
+        """)
+        restart_message.exec()
         try:
             UpdateService.launch_update_replacer(downloaded_exe)
         except Exception as exc:

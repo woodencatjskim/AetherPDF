@@ -136,6 +136,7 @@ class UpdateService:
                 "if errorlevel 1 goto failed\n"
                 "copy /y \"%UPDATE%\" \"%TARGET%\" >nul\n"
                 "if errorlevel 1 goto restore\n"
+                "set PYINSTALLER_RESET_ENVIRONMENT=1\n"
                 "start \"\" \"%TARGET%\"\n"
                 "exit /b 0\n"
                 ":restore\n"
