@@ -73,7 +73,6 @@ def build_executable() -> None:
     --onefile: 단일 실행 파일 생성
     --noconsole: 실행 시 콘솔 창 숨김
     --clean: 빌드 전 캐시 삭제
-    --collect-all: fitz 및 PySide6의 모든 메타데이터 및 다이내믹 바이너리 수집
     --icon: 고양이 발바닥 아이콘을 exe 자체 리소스에 삽입
     --add-data: assets 디렉토리를 번들에 포함하여 런타임 시 아이콘 접근 보장
     """
@@ -113,10 +112,6 @@ def build_executable() -> None:
         "--onefile",
         "--noconsole",
         "--name=AetherPDF",
-        # PyMuPDF(fitz) 패키지의 모듈과 다이내믹 바이너리를 완벽히 수집
-        "--collect-all=fitz",
-        # PySide6 모듈 및 종속 리소스 완벽히 수집
-        "--collect-all=PySide6",
         # assets 디렉토리를 번들에 포함하여 런타임 시 아이콘 및 리소스 접근 보장
         f"--add-data=assets{os.pathsep}assets",
     ]
