@@ -33,6 +33,17 @@ AetherPDF는 Windows에서 바로 실행할 수 있는 오프라인 데스크톱
 .\dist\AetherPDF.exe
 ```
 
+### Windows 권장 실행 환경
+
+- OS: Windows 10 64-bit 또는 Windows 11 64-bit
+- CPU 아키텍처: x64
+- 설치 방식: 단일 실행 파일 `AetherPDF.exe` 실행
+- Python 설치: 대상 PC에 별도 Python 설치가 필요하지 않습니다.
+- 런타임 DLL: 앱 실행에 필요한 Python, Qt/PySide6, PyMuPDF, OpenSSL, MSVC 런타임 DLL은 실행 파일에 함께 패키징됩니다.
+- 네트워크: PDF 편집은 오프라인으로 동작합니다. GitHub 릴리스 기반 업데이트 확인/다운로드에는 인터넷 연결이 필요합니다.
+- 비권장 환경: Windows 7/8/8.1 및 32-bit Windows는 이 빌드의 지원 대상이 아닙니다.
+- 배포 전 검증 권장: Visual C++ Redistributable이 설치되지 않은 깨끗한 Windows 10/11 VM에서 실행 확인을 권장합니다.
+
 ### 개발 환경에서 실행
 
 ```powershell
