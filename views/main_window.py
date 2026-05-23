@@ -10,16 +10,17 @@ from typing import Optional, List
 import os
 from PySide6.QtWidgets import (
     QMainWindow, QWidget, QVBoxLayout, QHBoxLayout, QSplitter,
-    QFileDialog, QMessageBox, QLabel, QMenuBar, QToolButton
+    QFileDialog, QMessageBox, QLabel, QMenuBar, QToolButton, QProgressDialog
 )
-from PySide6.QtCore import Qt, QSize, QPoint
+from PySide6.QtCore import QObject, QThread, Qt, QSize, QPoint, Signal, QTimer
 from PySide6.QtGui import QAction, QKeySequence, QIcon
 
-from config.settings import APP_NAME, DEFAULT_WINDOW_WIDTH, DEFAULT_WINDOW_HEIGHT
+from config.settings import APP_NAME, APP_VERSION, DEFAULT_WINDOW_WIDTH, DEFAULT_WINDOW_HEIGHT
 from config.theme import apply_theme
 from models.pdf_document import PdfDocument
 from services.pdf_editor_service import PdfEditorService
 from services.export_service import ExportService
+from services.update_service import UpdateInfo, UpdateService
 
 from views.toolbar_widget import ToolbarWidget
 from views.sidebar_widget import SidebarWidget
@@ -119,6 +120,37 @@ class TitleBar(QWidget):
 
 
 
+class UpdateCheckWorker(QObject):
+    """Background worker for GitHub update checks."""
+
+    finished = Signal(object)
+
+    def run(self) -> None:
+        """Check GitHub Releases for an available update."""
+        self.finished.emit(UpdateService.check_for_update())
+
+
+class UpdateDownloadWorker(QObject):
+    """Background worker for downloading an update executable."""
+
+    progress = Signal(int, int)
+    finished = Signal(str)
+    failed = Signal(str)
+
+    def __init__(self, update_info: UpdateInfo) -> None:
+        """Store update metadata for the download task."""
+        super().__init__()
+        self._update_info = update_info
+
+    def run(self) -> None:
+        """Download the release asset."""
+        try:
+            path = UpdateService.download_update(self._update_info, self.progress.emit)
+            self.finished.emit(path)
+        except Exception as exc:
+            self.failed.emit(str(exc))
+
+
 class MainWindow(QMainWindow):
     """
     Main application window orchestrating Toolbar, Sidebar, and PDF Viewer.
@@ -135,8 +167,15 @@ class MainWindow(QMainWindow):
         self._pdf_doc = PdfDocument()
         self._current_mode: str = "view"
         self._is_dirty: bool = False  # Track unsaved changes [NEW]
+        self._update_info: Optional[UpdateInfo] = None
+        self._update_check_thread: Optional[QThread] = None
+        self._update_check_worker: Optional[UpdateCheckWorker] = None
+        self._update_download_thread: Optional[QThread] = None
+        self._update_download_worker: Optional[UpdateDownloadWorker] = None
+        self._update_progress_dialog: Optional[QProgressDialog] = None
 
         self.setAcceptDrops(True)  # Enable Drag-and-Drop [NEW]
+        UpdateService.cleanup_old_backups()
 
         # [NEW] 윈도우 타이틀바 및 작업표시줄 아이콘 적용
         # PyInstaller 번들 실행 시 sys._MEIPASS 경로에서 assets를 탐색합니다.
@@ -156,6 +195,7 @@ class MainWindow(QMainWindow):
         self._setup_menu_bar()  # Combined QMenuBar setup and shortcut actions
         self._connect_signals()
         self._sync_hud()        # Initial HUD state sync (empty state)
+        QTimer.singleShot(1200, self._check_for_updates)
 
     def _init_ui(self) -> None:
         """Configure widget layout hierarchy."""
@@ -285,6 +325,11 @@ class MainWindow(QMainWindow):
         act_about.triggered.connect(self.action_show_about)
         menu_help.addAction(act_about)
 
+        self.act_update = QAction("업데이트", self)
+        self.act_update.setVisible(False)
+        self.act_update.triggered.connect(self.action_apply_update)
+        menubar.addAction(self.act_update)
+
         # Keep actions active in window context for keyboard shortcuts to fire
         self.addActions([
             act_open, act_save, act_save_as,
@@ -337,6 +382,132 @@ class MainWindow(QMainWindow):
             self.toolbar.update_document_info(filename, curr_page, total_pages)
         else:
             self.toolbar.update_document_info("", 0, 0)
+
+    def _check_for_updates(self) -> None:
+        """Check GitHub Releases for a newer packaged executable."""
+        if self._update_check_thread is not None:
+            return
+
+        self._update_check_thread = QThread(self)
+        self._update_check_worker = UpdateCheckWorker()
+        self._update_check_worker.moveToThread(self._update_check_thread)
+        self._update_check_thread.started.connect(self._update_check_worker.run)
+        self._update_check_worker.finished.connect(self._on_update_check_finished)
+        self._update_check_worker.finished.connect(self._update_check_thread.quit)
+        self._update_check_worker.finished.connect(self._update_check_worker.deleteLater)
+        self._update_check_thread.finished.connect(self._on_update_check_thread_finished)
+        self._update_check_thread.start()
+
+    def _on_update_check_finished(self, update_info: Optional[UpdateInfo]) -> None:
+        """Show the update action when a newer release is available."""
+        if not update_info:
+            return
+
+        self._update_info = update_info
+        self.act_update.setText(f"업데이트 v{update_info.latest_version}")
+        self.act_update.setVisible(True)
+        self.statusBar().showMessage(f"AetherPDF v{update_info.latest_version} 업데이트 가능")
+
+    def _on_update_check_thread_finished(self) -> None:
+        """Clear update check thread references."""
+        if self._update_check_thread:
+            self._update_check_thread.deleteLater()
+        self._update_check_thread = None
+        self._update_check_worker = None
+
+    def action_apply_update(self) -> None:
+        """Download and apply the available update after user confirmation."""
+        if not self._update_info:
+            return
+
+        if not UpdateService.can_apply_update():
+            QMessageBox.information(
+                self,
+                "업데이트",
+                "업데이트 적용은 패키징된 AetherPDF.exe로 실행 중일 때만 가능합니다.\n"
+                "개발 실행 환경에서는 업데이트 가능 여부만 확인합니다."
+            )
+            return
+
+        reply = QMessageBox.question(
+            self,
+            "업데이트 확인",
+            f"AetherPDF v{self._update_info.latest_version}을 다운로드하고 재시작하시겠습니까?",
+            QMessageBox.Yes | QMessageBox.No,
+            QMessageBox.Yes,
+        )
+        if reply != QMessageBox.Yes:
+            return
+
+        self._start_update_download()
+
+    def _start_update_download(self) -> None:
+        """Download the selected update release asset in the background."""
+        if not self._update_info or self._update_download_thread is not None:
+            return
+
+        self._update_progress_dialog = QProgressDialog("업데이트 다운로드 중...", "취소", 0, 100, self)
+        self._update_progress_dialog.setWindowTitle("AetherPDF 업데이트")
+        self._update_progress_dialog.setWindowModality(Qt.WindowModal)
+        self._update_progress_dialog.setMinimumDuration(0)
+        self._update_progress_dialog.setCancelButton(None)
+
+        self._update_download_thread = QThread(self)
+        self._update_download_worker = UpdateDownloadWorker(self._update_info)
+        self._update_download_worker.moveToThread(self._update_download_thread)
+        self._update_download_thread.started.connect(self._update_download_worker.run)
+        self._update_download_worker.progress.connect(self._on_update_download_progress)
+        self._update_download_worker.finished.connect(self._on_update_download_finished)
+        self._update_download_worker.failed.connect(self._on_update_download_failed)
+        self._update_download_worker.finished.connect(self._update_download_thread.quit)
+        self._update_download_worker.failed.connect(self._update_download_thread.quit)
+        self._update_download_worker.finished.connect(self._update_download_worker.deleteLater)
+        self._update_download_worker.failed.connect(self._update_download_worker.deleteLater)
+        self._update_download_thread.finished.connect(self._on_update_download_thread_finished)
+        self._update_download_thread.start()
+
+    def _on_update_download_progress(self, downloaded: int, total: int) -> None:
+        """Update download progress UI."""
+        if not self._update_progress_dialog:
+            return
+        if total > 0:
+            self._update_progress_dialog.setMaximum(100)
+            self._update_progress_dialog.setValue(int(downloaded * 100 / total))
+        else:
+            self._update_progress_dialog.setMaximum(0)
+
+    def _on_update_download_finished(self, downloaded_exe: str) -> None:
+        """Launch the replacement script after download completion."""
+        if self._update_progress_dialog:
+            self._update_progress_dialog.close()
+            self._update_progress_dialog = None
+
+        QMessageBox.information(
+            self,
+            "업데이트",
+            "확인을 누르면 업데이트를 적용하기 위해 AetherPDF를 재시작합니다."
+        )
+        try:
+            UpdateService.launch_update_replacer(downloaded_exe)
+        except Exception as exc:
+            QMessageBox.critical(self, "업데이트 오류", f"업데이트 적용을 시작하지 못했습니다:\n{exc}")
+            return
+
+        QTimer.singleShot(100, self.close)
+
+    def _on_update_download_failed(self, message: str) -> None:
+        """Report update download failures."""
+        if self._update_progress_dialog:
+            self._update_progress_dialog.close()
+            self._update_progress_dialog = None
+        QMessageBox.critical(self, "업데이트 다운로드 실패", message)
+
+    def _on_update_download_thread_finished(self) -> None:
+        """Clear update download thread references."""
+        if self._update_download_thread:
+            self._update_download_thread.deleteLater()
+        self._update_download_thread = None
+        self._update_download_worker = None
 
     # --- Drag & Drop and Save State Interceptors ---
 
@@ -427,7 +598,7 @@ class MainWindow(QMainWindow):
         QMessageBox.about(
             self,
             "AetherPDF 정보",
-            "<h3>🌌 AetherPDF v1.1.0</h3>"
+            f"<h3>🌌 AetherPDF v{APP_VERSION}</h3>"
             "<p><b>초경량 오프라인 PDF 편집기</b></p>"
             "<p>AetherPDF는 초고속 렌더링 및 본문 직접 수정과 주석 필기가 가능한 오프라인 전용 독립 실행 소프트웨어입니다.</p>"
             "<hr style='border: 1px solid #2E2E35;'/>"

@@ -7,7 +7,9 @@ and settings for PDF rendering and UI geometry.
 
 # Application Metadata
 APP_NAME: str = "AetherPDF"
-APP_VERSION: str = "1.0.0"
+APP_VERSION: str = "1.1.0"
+GITHUB_REPO: str = "woodencatjskim/AetherPDF"
+GITHUB_RELEASES_API: str = f"https://api.github.com/repos/{GITHUB_REPO}/releases/latest"
 
 # Main UI Window Dimensions
 DEFAULT_WINDOW_WIDTH: int = 1280
